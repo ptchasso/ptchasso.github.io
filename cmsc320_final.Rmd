@@ -1,0 +1,602 @@
+---
+title: "Spread of Coronavirus"
+author: 'Zeyang Wang, Barbara Rodriguez, and Elsa Tchasso '
+date: "5/9/2020"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+# Introduction
+
+  In recent times, COVID-19 has brought a lot of pain to our society. Each of us hopes that this disaster will end soon. The statistical data on this epidemic can help us analyze the development of the epidemic. We can determine whether it is safe around us by analyzing the growth of cases in each state. By analyzing the spread and lethality of the virus, we can predict the hazards of this virus. By comparing the growth of cases and the increase in the number of recovered, we can predict when the epidemic will end and we can return to normal life.
+  
+  However, due to the sudden outbreak, we do not currently have a suitable tool to analyze COVID data. As students who are learning data science, we are capable and should try to design tools to analyze this set of data. 
+
+  In this tutorial, we will help you complete these three steps to deal with COVID-19 statistics. 
+
+1. Data curation, parsing, and management
+
+2. Exploratory data analysis
+
+3. Hypothesis testing and machine learning to provide analysis.
+
+
+# Data Curation, Parsing, and Management
+
+
+First of all, because the data of the epidemic situation are updated every day, in order to exclude the impact of data changes, we will download and analyze only the data before April 28, 2020.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+```{r}
+# Add to data parsing section
+library(tidyverse)
+
+covid_data <- read_csv("covid-statistics-by-us-states-daily-updates.csv")
+```
+Then we try to exclude some inaccurate data. For example, we will exclude columns in which the number of deaths is negative or the increase in deaths is negative. Due to space limitations, we only display the first ten rows of data. From this, we can see that there are 25 columns in this set of data. 
+```{r}
+covid_data <- covid_data %>%
+  filter(positiveincrease > -1 & death > -1 & total>-1 &
+           totaltestresults>-1 & posneg>-1 & fips>-1 & deathincrease>-1 &
+           hospitalizedincrease>-1 & negativeincrease>-1 & totaltestresultsincrease>-1 &
+           positive>-1 & negative>-1)
+
+head(covid_data,10)
+```
+From the previous table, we can see a lot of attributes, but people often don't pay attention to all the attributes in a dataset. People are most concerned about the most intuitive numbers, such as the number and growth of deaths, the number and growth of positives. So here, we use the select function to make the data more intuitive.
+```{r}
+head( select(covid_data, date, state,positive, positiveincrease, death,deathincrease), 10)
+
+```
+
+Compared with the national data, people tend to pay more attention to the data of their own state, so we will filter on the state of Maryland.
+```{r}
+umd_around<-filter(covid_data, state == "MD")
+umd_around
+```
+In order to find the relationship between the number of cases and the speed of transmission, we will make a graph to show the relationship between total positive cases and daily increase in positive cases.We can see that the number of cases spread very quickly when the number of cases was 5000, and then it slowed down again.
+
+```{r}
+p <- ggplot(umd_around,aes(x=positive,y=positiveincrease)) +
+			geom_line(color="red")+
+      geom_point() + 
+  labs(title="Growth in Positive COVID-19 Cases in Maryland",
+       x="Total Positive Cases",
+       y="Daily Increase n Positive Cases")
+p
+```
+
+In order to analyze the rapid increase in infection rate when the number of cases is 5000, we re-use the positive COVID tests and negative COVID tests as the x value and y value for drawing. The slope of this figure can be used to visualize the proportion of infected people in the population. We can see that when x = 5000, the slope does not change much.This means that the speed of propagation has not accelerated. The accelerated growth rate may be caused by the increased number of tests.
+
+
+```{r}
+p <- ggplot(umd_around,aes(x=positive,y=negative)) +
+			geom_line(color="red")+
+      geom_point() +
+  labs(title="Relationship between Positive and Negative COVID-19 Tests in Maryland",
+       x="Positive COVID-19 Tests",
+       y="Negative COVID-19 Tests")
+p
+```
+Of course, we can choose the most intuitive graph, with time as the x-axis. Then by setting the y value to a different attribute, we can anticipate future trends by comparing the curves in the graph.
+```{r}
+umd_around$date<-as.Date(umd_around$date, format = "%m/%d/%Y")
+p <- ggplot(umd_around,aes(x=date)) +
+			geom_line(aes(y=positive,color="red"))+
+      geom_point(aes(y=positive,color="red"))+
+      geom_line(aes(y=positiveincrease,color="black"))+
+       geom_point(aes(y=positiveincrease,color="black")) +
+    scale_color_discrete(name = "Legend", labels = c("Daily Increase in Positive Cases", "Total Positive Cases")) +
+  labs(title="Rate of Positive COVID-19 Tests in Maryland Over Time",
+       x="Date",
+       y="Number of People")
+p
+```
+
+
+```{r}
+p1 <- ggplot(umd_around,aes(x=date)) +
+			geom_line(aes(y=death,color="red"))+
+      geom_point(aes(y=death,color="red"))+
+      geom_line(aes(y=positive,color="black"))+
+       geom_point(aes(y=positive,color="black")) +
+    scale_color_discrete(name = "Legend", labels = c("Total Positive Cases", "Total COVID-19 Deaths")) +
+  labs(title="Rate of Positive COVID-19 Tests and COVID-19 Deaths in Maryland Over Time",
+       x="Date",
+       y="Number of People")
+p1
+```
+
+
+```{r}
+p2 <- ggplot(umd_around,aes(x=date)) +
+			geom_line(aes(y=death,color="red"))+
+      geom_point(aes(y=death,color="red"))+
+      geom_line(aes(y=deathincrease,color="black"))+
+       geom_point(aes(y=deathincrease,color="black")) +
+    scale_color_discrete(name = "Legend", labels = c("Daily Increase in COVID-19 Deaths", "Total COVID-19 Deaths")) +
+  labs(title="Rate of COVID-19 Deaths in Maryland Over Time",
+       x="Date",
+       y="Number of People")
+p2
+```
+
+
+# Exploratory Data Analysis
+
+After parsing the data, it is a good idea to perform exploratory data analysis. During exploratory data analysis, we compute summary statistics, create visualizations, and analyze trends. The goals of exploratory data analysis are to:
+
+1. Spot problems with the data  
+2. Understand variable properties such as central trend, spread, skew, and outliers.    
+3. Understand relationships between pairs of variables.    
+
+Having a good understanding of the data will help us determine machine learning methods.
+
+## Visualizations
+
+
+### Visualizations on Single Variables
+
+Some visualizations, such as a histogram and a box plot help us understand the spread of single variables.
+
+A histogram shows us frequency of data points in certain ranges. Each entity in our dataset represents a given date and U.S. state. As such, let's make a histogram showing the distribution in number of new coronavirus cases.
+
+```{r}
+
+covid_data %>%
+  ggplot(aes(x=positiveincrease)) +
+    geom_histogram() +
+  labs(title="Count of New Coronavirus Cases",
+       x="Number of New Cases",
+       y="Count")
+```
+
+Our histogram shows that most of our entities had fewer than 1000 new coronavirus cases each day. This makes sense since our data ranges from January 22, 2020 until April 28, 2020. As most U.S. states did not have many coronavirus cases until mid-March, it is reasonable that many of the entities in our dataset had little increase in positive cases from the previous day. 
+
+A boxplot is very helpful in viewing central tendency and range of a variable. Let's make a boxplot showing new coronavirus cases. 
+```{r}
+covid_data %>%
+  ggplot(aes(x='',y=positiveincrease)) +
+    geom_boxplot() +
+  labs(title="Count of New Coronavirus Cases",
+       x="",
+       y="Number of New Coronavirus Cases")
+```
+
+If the boxplot is not clear, you can do a logarithmic data transformation.
+```{r}
+covid_data %>%
+  mutate(min_new_cases=min(positiveincrease, na.rm=TRUE)) %>%
+  mutate(log_new_cases = log(positiveincrease - min_new_cases)) %>%
+  ggplot(aes(x='', y=log_new_cases)) +
+  geom_boxplot() +
+  labs(title="Count of New Coronavirus Cases",
+       x="",
+       y="Number of New Coronavirus Cases")
+```
+
+### Visualizations on Pairs of Variables
+
+It is helpful to understand relationships between pairs of variables when analyzing central tendency, spread, and skew. 
+
+For example, we can analyze how number of new cases changes based on U.S. state. Let's focus on five states for this visualization (California, New York, Texas, Maryland, and Florida).
+
+```{r}
+library(dplyr)
+
+covid_data %>% 
+  filter(state %in% c("CA", "NY", "TX", "MD", "FL")) %>%
+  ggplot(aes(x=state, y=positiveincrease)) +
+    geom_boxplot() +
+  labs(title="New Coronavirus Cases By State",
+       x="State",
+       y="Number of New Coronavirus Cases")
+                
+```
+
+We can see that the spread and central tendency is dramatically influenced by state. New York has a much higher spread and median than the other states. California has a larger spread than Florida, Maryland, and Texas. New York, California, and Texas have a negative skew, whereas Maryland and Florida have little skew.
+
+To see how one continuous variable is conditioned on another, we can use a scatterplot. Adding a line of best fit helps us see if there is a correlation between the dependent and independent variables. 
+
+Let's see if there is a relationship between new cases and deaths from coronavirus.
+```{r}
+covid_data %>%
+  ggplot(aes(x=positiveincrease, y=deathincrease)) +
+  geom_point() +
+  geom_smooth(method=lm) +
+  labs(title="How Number of New Coronavirus Cases affects Death Rates",
+       x="New Coronavirus Cases",
+       y="Increased Deaths From Coronavirus")
+```
+
+We can see that there is a positive trend between positive test cases and number of deaths attributed to coronavirus.
+
+
+## Summary Statistics
+
+It is important to understand how to calculate summary statistics in order to quantify the trends seen in visualizations.
+
+### Range
+
+The range is the difference between the max and min value for a certain attribute.
+
+Here is how to gather the range of daily increase in coronavirus cases.
+```{r}
+covid_data %>%
+  filter(!is.na(`positiveincrease`)) %>%
+  summarize(min_cases = min(positiveincrease), max_cases = max(positiveincrease))
+```
+
+Thus, the range of new COVID-19 cases in the U.S. is 11,571 - 0 = 11,571.
+
+### Central Tendency
+
+For central tendency, we can look at the median and the mean. The median is a statistic defined such that half the data has a smaller value and half the data has a larger value. The mean is the average of the data and is calculated by adding all values and dividing by number of values. e.g. ($\overline{x} = \frac{1}{n}\sum_{i=1}^{n} X_i$).
+
+Let's show our original histogram for new COVID-19 cases with mean and median identified. We will use 30 bins to make the data easier to visualize.
+```{r}
+covid_data %>%
+  ggplot(aes(x=positiveincrease)) +
+  geom_histogram(bins=30) +
+  geom_vline(aes(xintercept=median(positiveincrease)), color="red") +
+  geom_vline(aes(xintercept=mean(positiveincrease)), color="blue") +
+  labs(title="Count of New Coronavirus Cases",
+       x="Number of New Cases",
+       y="Count")
+```
+
+### Spread
+
+To calculate spread, we can use the variance: $$var(x) = \frac{1}{n} \sum_{i=1}^{n}(x_i - \overline{x})^{2}$$
+Or we can use standard deviation, which is the square root of the variance:
+$$sd(x) = \sqrt{\frac{1}{n} \sum_{i=1}^{n}(x_i - \overline{x})^{2}}$$
+Calculating the first quartile (value in which 25% of the data is smaller), and third quarter (value in which 75% of the data is smaller) helps us understand spread. We can easily calculate the min, first quartile, median, third quartile, and max in R.
+```{r}
+summary(covid_data$positiveincrease)
+```
+
+### Skew
+
+In our visualizations, we looked at box plots and histograms to determine if the data is skewed. But we can also use formal calculations to help us make that determination.
+```{r}
+covid_data %>%
+  summarize(med_new_cases = median(positiveincrease),
+            q1_new_cases = quantile(positiveincrease, 1/4),
+            q3_new_cases = quantile(positiveincrease, 3/4)) %>%
+  mutate(d1_new_cases = med_new_cases - q1_new_cases,
+         d2_new_cases = q3_new_cases - med_new_cases) %>%
+  select(d1_new_cases, d2_new_cases)
+```
+
+The calculation confirms our assumption of positive skew. We can see that number of new cases between the third quartile and the median (d2_new_cases) is much higher than between median and first quartile (d1_new_cases). If there was little skew, we would see similar number of new cases between median and first quartile and median and third quartile. 
+
+## Data Transformation
+After learning about the distribution of the data, we can transform the data to assist with hypothesis testing and machine learning.
+
+Standardizing the data is a very common data transformation. We standardize data by transforming variables from their original units to z scores, which is standard deviations away from the mean.
+The formula to calculate z scores is: $$z_i = \frac{(x_i - \overline{x})}{sd(x)}$$
+where $\overline{x}$ is the mean of the data, and $sd(x)$ is the standard deviation.
+
+Let's standardize our COVID-19 dataset based on new COVID-19 cases.
+```{r}
+covid_data %>%
+  mutate(scaled_new_cases = (positiveincrease - mean(positiveincrease)) / sd(positiveincrease)) %>%
+  ggplot(aes(x=scaled_new_cases)) + 
+  geom_histogram(binwidth=1) + 
+  labs(title="Count of New Coronavirus Cases",
+       x="Standardized Number of New Cases",
+       y="Count")
+```
+Notice that the x axis is now in z-scores.
+
+# Hypothesis Testing and Machine learning
+
+## Hypothesis testing.
+
+Due to the rapid increase of COVID-19 cases, most states decided to go on lockdown on March 30th. 
+This meant that nobody was allowed to go out other than for going to an essential job or to get groceries. 
+The purpose of this lockdown was to reduce the number of cases of COVID-19 by limiting physical human interaction.
+ 
+We are going to conduct hypothesis testing to verify if the lockdown has the expected results. Our null hypothesis is that there is no relationship between date (after lockdown) and number of positive test cases. Our alternative hypothesis is that there is a relationship between date and positive test cases. We will use a significance level of .05. This means that, after performing linear regression, if our p-value is less than .05, we wil conclude that our results are statistically significant. Our p-value indicates that, if the null hypothesis is true, this is the probability of getting the results that we did from our analysis. Thus, a small p-value indicates that it is unlikely that the null hypothesis is true. 
+
+We are goint to analyse the dataset in the most affected states, New York, New Jersey, Illinois, California, and Massachusetts.
+ 
+### Preparing the data for Analysis
+
+First, we need to filter the states that we are going to use for the hypothesis testing. Then we compute the number of day since the begining of the lockdown. and then we graph to have an idea of what to expect.
+
+```{r hyptothesis1}
+
+library(lubridate)
+
+covid_data$date <- mdy(covid_data$date)
+
+hypothesis_covid <- filter(covid_data,state=="NY" | state=="CA" | state=="NJ" | state=="IL" | state=="MA")
+hypothesis_covid <-filter(hypothesis_covid, between(date, as.Date("2020-03-30"), as.Date("2020-04-28")))
+
+hypothesis_covid$numdays <- difftime(hypothesis_covid$date,as.Date("2020-03-30") ,units="days")
+hypothesis_covid$numdays<-as.integer(hypothesis_covid$numdays, units="days")
+hypothesis_covid$state<-as.factor(hypothesis_covid$state)
+
+# plot the data using ggplot
+ggplot(data = hypothesis_covid, aes(x = date, y = positiveincrease)) +
+  facet_wrap(~state) +
+  geom_point() +
+  geom_smooth(method = lm)+
+  labs(x = "Date",
+    y = "positive case of covid ",
+    title = "Increase of covid 19 cases in top 5 affected states in from March 30 to April 28")
+    
+hypothesis_covid
+
+```
+
+As you can see it seems that the lockdown was only effective in NY since there is a significance decrease in positive cases. Let's do a linear regression and analyze the p-value. We will reject the null hypothesis if the significance level is less than 0.05. We compute the linear model for each state.
+
+```{r hypothesis2}
+library(broom)
+# linear model NY
+covid_NY <- filter(hypothesis_covid, state=="NY") %>% lm(positiveincrease ~ numdays, data = .)
+covid_NY_linear <- tidy(covid_NY)
+#linear model NJ
+covid_NJ <- filter(hypothesis_covid, state=="NJ") %>% lm(positiveincrease ~ numdays, data = .)
+covid_NJ_linear <- tidy(covid_NJ)
+#linear model CA
+covid_CA <- filter(hypothesis_covid, state=="CA") %>% lm(positiveincrease ~ numdays, data = .)
+covid_CA_linear <- tidy(covid_CA)
+#linear model IL
+covid_IL <- filter(hypothesis_covid, state=="IL") %>% lm(positiveincrease ~ numdays, data = .)
+covid_IL_linear <- tidy(covid_IL)
+#linear model MA
+covid_MA <- filter(hypothesis_covid, state=="MA") %>% lm(positiveincrease ~ numdays, data = .)
+covid_MA_linear <- tidy(covid_MA)
+#fitted_models %>% glance(model)
+
+
+covid_NY_linear
+```
+
+
+```{r}
+covid_NJ_linear
+```
+
+
+```{r}
+covid_CA_linear
+```
+
+
+```{r}
+covid_IL_linear
+```
+
+
+```{r}
+covid_MA_linear
+```
+**Discussion**
+
+We see that the p-value for New York, California, Illinois, and Massachusetts (which are respectively 0.0009,0.02, 0.0000007 and 0.0005) are less than the significance level of .05. Thus, we should reject the null hypothesis that there is no relation between the number of days in lockdown and the number of positive cases. 
+
+As for New Jersey, the p-value is 0.35. This indicates that there is not a statistically significant relationship between the number of days in the lockdown and the total number of positive cases. we see in the graph for New Jersey that the number of positive cases are relatively consistent over time. 
+
+## **Machine Learning: Mexico covid data **
+
+Due to the presence of multiple missing data in columns of this dataset, we decided to perform machine learning on a different dataset.
+In this section, we are going to determine what are the risk factors of COVID-19. We will look at the data from Mexico.
+
+**Hypothesis :**  age, sex, and underlying conditions such as pneumonia, asthma, smoking, and cardiovascular diseases are not risk factors for coronavirus. 
+
+We are going to use logistic regression and random forest to verify our hypothesis.
+
+
+### Data Preparation
+
+This is our initial data
+
+```{r}
+mexico_covid <- read_csv("mexico_covid.csv")
+head(mexico_covid)
+```
+**Explanation**
+
+Since the data is not in English, we are going to first clean the data, and rename columns in English.
+In this dataset, the sex attribute is represented by 1 and 2.
+1 represents female and 2 represents male. For underlying conditions, i,e asthma, pneumonia, etc...,  attributes, 1 will represent yes and 2 will represent no, 98 will mean ignore, 97 means doesn't apply, and 98 means not specified.
+For "Type of Care", 1 represents ambulatory and 2 represents hospitalized.
+We are going to replace 97 by 2 since that value means the condition doesn't apply to the patient. So it can be considered as a no.
+We also have to filter to remove tests that are still pending and  drop nationality and in_contact columns since they are not going to be used for our analysis.
+
+Finally, we will replace 98 and 99 by "na" and drop those rows that have "na".
+
+```{r}
+
+#rename variable
+
+mexico_covid <- mexico_covid %>% rename(
+  id="X1",
+  sex="SEXO",
+  type_of_care="TIPO_PACIENTE",
+  date_hospitalized="FECHA_INGRESO",
+  date_begin_symptoms="FECHA_SINTOMAS",
+  age="EDAD",
+  nationality="NACIONALIDAD",
+  diabetes="DIABETES",
+  chemo="EPOC",
+  asthma="ASMA",
+  inmusupr="INMUSUPR",
+  hypertension="HIPERTENSION",
+  other_diseases="OTRA_CON",
+  cardiovascular="CARDIOVASCULAR",
+  obesity="OBESIDAD",
+  renal_diseases="RENAL_CRONICA",
+  tabacco_use="TABAQUISMO",
+  result_covid="RESULTADO",
+  icu="UCI",
+  in_contact_covid="OTRO_CASO"
+)
+
+
+mexico_covid <- mexico_covid %>% select(-nationality) %>% select(-in_contact_covid)
+
+#replace all 97 by 2
+# function to search through all colums and replace 97 by 2
+mexico_covid[ , 7:8 ][ mexico_covid[ , 7:8 ] == 97 ] <- 2
+mexico_covid[ , 10:19 ][ mexico_covid[ , 10:19 ] == 97 ] <- 2
+mexico_covid[ , 21 ][ mexico_covid[ , 21] == 97 ] <- 2
+mexico_covid <- mexico_covid %>% na_if("98") %>% na_if("99")
+
+mexico_covid <- mexico_covid %>% drop_na()
+mexico_covid<- filter(mexico_covid, result_covid=='1' | result_covid=='2')
+
+mexico_covid$sex<- as.factor(mexico_covid$sex)
+mexico_covid$intubated<- as.factor(mexico_covid$intubated)
+mexico_covid$Pneumonia<- as.factor(mexico_covid$Pneumonia)
+mexico_covid$diabetes<- as.factor(mexico_covid$diabetes)
+mexico_covid$chemo<- as.factor(mexico_covid$chemo)
+mexico_covid$asthma<- as.factor(mexico_covid$asthma)
+mexico_covid$inmusupr<- as.factor(mexico_covid$inmusupr)
+mexico_covid$hypertension<- as.factor(mexico_covid$hypertension)
+mexico_covid$other_diseases<- as.factor(mexico_covid$other_diseases)
+mexico_covid$cardiovascular<- as.factor(mexico_covid$cardiovascular)
+mexico_covid$obesity<- as.factor(mexico_covid$obesity)
+mexico_covid$renal_diseases<- as.factor(mexico_covid$renal_diseases)
+mexico_covid$tabacco_use<- as.factor(mexico_covid$tabacco_use)
+mexico_covid$result_covid<- as.factor(mexico_covid$result_covid)
+mexico_covid$icu<- as.factor(mexico_covid$icu)
+mexico_covid$age <- as.integer(mexico_covid$age)
+
+
+head(mexico_covid)
+
+```
+
+
+### Logistic Regression
+
+**Recall hypothesis**: factors such as age, sex, and underlying diseases ( asthma, diabetes...) are not risk factor for COVID-19
+
+```{r}
+data_copy <- mexico_covid
+glm.mod= glm(result_covid~age+ sex+Pneumonia+diabetes+chemo+asthma+inmusupr+hypertension+other_diseases+cardiovascular+obesity+renal_diseases+tabacco_use,
+             data=data_copy, family="binomial")
+tidy(glm.mod)
+```
+
+**Discussion** 
+
+If we let the significance level be 0.05, we see that all the p-values are less than it (i.e 0.05). Thus we reject the null hypothesis. In conclusion, we can say that age, sex and pre-existing conditions such as diabetes, asthma, immunisopresent, cardiovascular diseases, and renal diseases are risk factors for COVID-19.
+
+
+Let's train the data to a random forest to determine which factor is the most important.
+```{r}
+library(randomForest)
+#Data Partition
+set.seed(1234)
+data_copy<- data_copy %>% sample_n(12000)
+train_indices <- sample(nrow(data_copy), nrow(data_copy)/2)
+
+train_set <- data_copy[train_indices,]
+test_set <- data_copy[-train_indices,]
+
+train_set <- droplevels(train_set)
+
+
+model_rf1 <- randomForest(result_covid~sex+Pneumonia+diabetes+chemo+asthma+inmusupr, importance=TRUE, mtry=3, data=train_set)
+model_rf2 <- randomForest(result_covid~hypertension+other_diseases+cardiovascular+obesity+renal_diseases+tabacco_use+age, importance=TRUE, mtry=3, data=train_set)
+
+model_rf3 <- randomForest(result_covid~age, importance=TRUE, mtry=3, data=train_set)
+plot(model_rf1)
+plot(model_rf2)
+plot(model_rf3)
+
+```
+
+```{r}
+variable_importance <- importance(model_rf1)
+knitr::kable(head(round(variable_importance, digits=2)))
+
+variable_importance <- importance(model_rf2)
+knitr::kable(head(round(variable_importance, digits=2)))
+
+variable_importance <- importance(model_rf3)
+knitr::kable(head(round(variable_importance, digits=2)))
+```
+
+**Interpretation**
+
+ The column called MeanDecreaseAccuracy contains a measure of the extent to which a variable improves the accuracy of the forest in predicting the classification. Higher values mean that the variable improves prediction. In a rough sense, it can be interpreted as showing the amount of increase in classification accuracy that is provided by including the variable in the model. Importance (MeanDecreaseGini) provides a more nuanced measure of importance, which factors in both the contribution that variable makes to accuracy, and the degree of misclassification.  As with MeanDecreaseAccuracy, high numbers indicate that a variable is more important as a predictor.
+
+From model 1, we can see that people that have pneumonia, asthma and are inmunosuppred are are higher risk that people than people that are in chemotherapy or that have diabetes. We also see that gender is also an important factor.
+From model 2 we see that people that have hypertension, cardiovascular and renal disease are at higher risk than people that smoke. 
+We can also conclude that age is the second most important risk factor of COVID-19.
+
+Now, let's  use our models to predict the people in our testing set that have coronavirus. We will use a confusion matrix to evaluate the performance of our models. Values on the diagonal correspond to true positives and true negatives (correct predictions) whereas the others correspond to false positives and false negatives. 
+
+```{r}
+test_set<-as.data.frame(test_set)
+#model 1
+pred1 = predict(model_rf1, newdata = test_set)
+cm1 = table(pred1, test_set$result_covid)
+
+#model 2
+pred2 = predict(model_rf2, newdata = test_set)
+cm2 = table(pred2, test_set$result_covid)
+
+#model 3
+pred3 = predict(model_rf3, newdata = test_set)
+cm3 = table(pred3, test_set$result_covid)
+
+cm1
+cm2
+cm3
+
+```
+
+```{r}
+accuracy1=(cm1[1,1]+cm1[2,2])/nrow(test_set)
+accuracy2=(cm2[1,1]+cm2[2,2])/nrow(test_set)
+accuracy3=(cm3[1,1]+cm3[2,2])/nrow(test_set)
+accuracy1
+accuracy2
+accuracy3
+```
+
+
+We see that we achieve 68.5% accuracy with our first model, a 66.5% with our second model and 66.1 % with our third model. 
+
+# Conclusion
+
+In this tutorial, we have shown how to parse and manage data, conduct exploratory data analysis, and perform hypothesis testing and machine learning. By analyzing datasets on COVID-19, we have gained various insights. By looking at graphs of positive test cases and deaths over time, we have seen that positive test cases have increased dramatically over time, and that deaths have generally increased over time with a few days of decreased death rates. In our exploratory data analysis section, we saw that New York had a higher rate of increase in cases than California, Texas, Maryland and Florida. In our hypothesis testing and machine learning section, we noted a statistically significant relationship between days since lockdown and positive test cases for New York, California, Illinois, and Massachusetts, but not New Jersey. Through our logistic regression, we noted that ashtma, age, pneumonia, and chemotherapy are risk factors for COVID-19.
+
+# Other Resources
+
+We hope you are intersted in learning more about the data science pipeline after this tutorial. Here are some resources that provide additional insights:
+
+**Data Curation, Parsing, and Management**
+
+[Filtering Data with dplyr](https://blog.exploratory.io/filter-data-with-dplyr-76cf5f1a258e)
+
+[R for Data Science - Data Transformation Overview](https://r4ds.had.co.nz/transform.html)
+
+[Using dplyr to group, manipulate and summarize data](https://www3.nd.edu/~steve/computing_with_data/24_dplyr/dplyr.html)
+
+
+**Exploratory Data Analysis (EDA)**
+
+[R for Data Science - EDA](https://r4ds.had.co.nz/exploratory-data-analysis.html)
+
+[Exploratory Data Analysis in R for beginners](https://towardsdatascience.com/exploratory-data-analysis-in-r-for-beginners-fe031add7072)
+
+
+**Hypothesis Testing and Machine Learning**
+
+[Your First Machine Learning Project in R Step-By-Step](https://machinelearningmastery.com/machine-learning-in-r-step-by-step/)
+
+[Developing a Data Science Model to Predict Fake News](https://towardsdatascience.com/developing-a-data-science-model-to-predict-fake-news-184c25a13cb8)
+
+[The Four “Pure” Learning Styles in Machine Learning](https://towardsdatascience.com/the-four-pure-learning-styles-in-machine-learning-a6a1006b9396)
+
